@@ -77,3 +77,6 @@ experiments/
 target/
 
 frontend/src-tauri/binaries/
+# Local tooling artifacts — never commit
+.hermes/
+graphify-out/
