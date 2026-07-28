@@ -234,6 +234,13 @@ impl SettingsRepository {
         let api_key_column = match provider {
             "localWhisper" => "whisperApiKey",
             "parakeet" => return Ok(None), // Parakeet doesn't need an API key
+            // Keyless providers. These have no API-key column, so the catch-all
+            // below would return Err and make api_get_transcript_config fail for
+            // the whole config — which the frontend reads as "provider unreadable"
+            // and turns into a false "Transcription model not ready" on Record.
+            // `remote` authenticates with a bearer token inside remote_config, not here.
+            "disabled" | "none" | "" => return Ok(None),
+            "remote" => return Ok(None),
             "deepgram" => "deepgramApiKey",
             "elevenLabs" => "elevenLabsApiKey",
             "groq" => "groqApiKey",
