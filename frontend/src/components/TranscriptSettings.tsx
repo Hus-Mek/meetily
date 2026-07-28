@@ -336,6 +336,20 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                         </div>
                     </div>
 
+                    {provider === 'disabled' && (
+                        <div className="mt-6 mx-1 rounded-md border border-amber-200 bg-amber-50 p-3">
+                            <p className="text-sm text-amber-900">
+                                Live transcription is off. Meetings are still recorded and the audio is
+                                saved to disk — no transcription model is loaded, so CPU and memory stay free
+                                during the meeting.
+                            </p>
+                            <p className="mt-2 text-sm text-amber-900">
+                                The transcript panel stays empty while recording. Switch back to Parakeet or
+                                Local Whisper at any time to re-enable live transcription.
+                            </p>
+                        </div>
+                    )}
+
                     {provider === 'remote' && (
                         <div className="space-y-3 mt-4 border-t pt-4">
                             <div className="grid gap-1">
@@ -527,10 +541,14 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                         </div>
                     )}
 
-                    <LanguageSelection
-                                            selectedLanguage={selectedLanguage}
-                                            onLanguageChange={setSelectedLanguage}
-                                        />
+                    {/* Nothing transcribes in record-only mode, so a transcription
+                        language is meaningless — hide it rather than imply it applies. */}
+                    {provider !== 'disabled' && (
+                        <LanguageSelection
+                            selectedLanguage={selectedLanguage}
+                            onLanguageChange={setSelectedLanguage}
+                        />
+                    )}
                 </div>
             </div>
         </div>
