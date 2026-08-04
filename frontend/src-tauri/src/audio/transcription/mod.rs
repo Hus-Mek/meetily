@@ -8,12 +8,14 @@ pub mod parakeet_provider;
 pub mod engine;
 pub mod text_cleanup;
 pub mod worker;
+pub mod disabled_provider;
 
 // Re-export commonly used types
 pub use provider::{TranscriptionError, TranscriptionProvider, TranscriptResult};
 pub use text_cleanup::{clean_transcript_text, is_meaningless_output};
 pub use whisper_provider::WhisperProvider;
 pub use parakeet_provider::ParakeetProvider;
+pub use disabled_provider::DisabledProvider;
 pub use engine::{
     TranscriptionEngine,
     validate_transcription_model_ready,
