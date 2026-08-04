@@ -5,6 +5,7 @@
 pub mod provider;
 pub mod whisper_provider;
 pub mod parakeet_provider;
+pub mod remote_provider;
 pub mod engine;
 pub mod text_cleanup;
 pub mod worker;
@@ -16,6 +17,7 @@ pub use text_cleanup::{clean_transcript_text, is_meaningless_output};
 pub use whisper_provider::WhisperProvider;
 pub use parakeet_provider::ParakeetProvider;
 pub use disabled_provider::DisabledProvider;
+pub use remote_provider::{RemoteProvider, RemoteProviderConfig};
 pub use engine::{
     TranscriptionEngine,
     validate_transcription_model_ready,
