@@ -121,6 +121,7 @@ pub async fn drain_and_transcribe_paused_chunks<R: Runtime>(
                 let confidence_threshold = match &engine {
                     TranscriptionEngine::Whisper(_) | TranscriptionEngine::Provider(_) => 0.3,
                     TranscriptionEngine::Parakeet(_) => 0.0,
+                    TranscriptionEngine::Disabled => 0.0,
                 };
                 let meets_threshold = confidence_opt.map_or(true, |c| c >= confidence_threshold);
                 if text.trim().is_empty() || !meets_threshold {

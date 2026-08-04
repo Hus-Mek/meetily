@@ -118,8 +118,6 @@ base64 = "0.22"
 crossbeam = "0.8.4"
 dashmap = "6.1.0"
 
-# Remote provider base64 helper
-base64 = "0.22"
 
 # Directories
 dirs = "5.0.1"
