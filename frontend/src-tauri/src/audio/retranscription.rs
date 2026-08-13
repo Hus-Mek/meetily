@@ -332,8 +332,17 @@ async fn run_retranscription<R: Runtime>(
         }
     }
 
+    // Splitting only caps the upper end. Pack the lower end back up to the same
+    // target so short VAD segments stop being dispatched as their own request —
+    // that is what drives Whisper's subtitle-boilerplate hallucination.
+    let processable_segments =
+        super::common::pack_segments_to_target(&processable_segments, MAX_SEGMENT_SAMPLES);
+
     let processable_count = processable_segments.len();
-    info!("Processing {} segments (after splitting)", processable_count);
+    info!(
+        "Processing {} segments (after splitting and packing)",
+        processable_count
+    );
 
     // Process each speech segment with progress updates
     let mut all_transcripts: Vec<(String, f64, f64)> = Vec::new(); // (text, start_ms, end_ms)

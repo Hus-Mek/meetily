@@ -211,6 +211,77 @@ pub(crate) fn split_segment_at_silence(
     result
 }
 
+/// Pack consecutive VAD speech segments up to `target_samples` per request.
+///
+/// Whisper is a fixed 30-second mel-window model, so a request much shorter than
+/// the window gives the decoder little acoustic evidence per token and it falls
+/// back on its language-model prior — which was trained on web subtitles, so the
+/// failure mode is memorised boilerplate ("subscribe to the channel"), not
+/// silence. Measured on real Arabic meeting audio: chunks under 2s hallucinated
+/// at 19%, chunks of 5s or more at 1%. VAD should therefore choose segment
+/// *boundaries* and never segment *sizes*.
+///
+/// `split_segment_at_silence` only caps the upper end. This fills the lower end
+/// by concatenating consecutive segments, which also drops the silence between
+/// them and so raises the speech-to-silence ratio — the other half of the
+/// short-chunk problem (a ~1s VAD segment is ~60% padding).
+///
+/// Run this *after* splitting, so no input segment exceeds `target_samples`; an
+/// over-long segment is passed through untouched rather than silently cut.
+///
+/// Boundaries are only ever original VAD boundaries, so no word is ever cut
+/// mid-utterance. The packed segment spans `first.start_timestamp_ms` to
+/// `last.end_timestamp_ms`; because inter-segment silence is dropped, that span
+/// is longer than the packed audio, so transcript timestamps become accurate to
+/// the packed group rather than to each individual utterance.
+pub(crate) fn pack_segments_to_target(
+    segments: &[crate::audio::vad::SpeechSegment],
+    target_samples: usize,
+) -> Vec<crate::audio::vad::SpeechSegment> {
+    let mut packed: Vec<crate::audio::vad::SpeechSegment> = Vec::new();
+    let mut current: Option<crate::audio::vad::SpeechSegment> = None;
+
+    for segment in segments {
+        current = match current {
+            None => Some(segment.clone()),
+            Some(accumulated) => {
+                if accumulated.samples.len() + segment.samples.len() <= target_samples {
+                    // Build a new segment rather than mutating the accumulator's
+                    // identity: the Vec is local and owned, so extending it here
+                    // is construction, not mutation of a caller's data.
+                    let mut samples = accumulated.samples;
+                    samples.extend_from_slice(&segment.samples);
+                    Some(crate::audio::vad::SpeechSegment {
+                        samples,
+                        start_timestamp_ms: accumulated.start_timestamp_ms,
+                        end_timestamp_ms: segment.end_timestamp_ms,
+                        // A packed group is only as trustworthy as its weakest
+                        // member. (Barely load-bearing: callers use the engine's
+                        // confidence, not the VAD's, for the transcript.)
+                        confidence: accumulated.confidence.min(segment.confidence),
+                    })
+                } else {
+                    packed.push(accumulated);
+                    Some(segment.clone())
+                }
+            }
+        };
+    }
+
+    if let Some(accumulated) = current {
+        packed.push(accumulated);
+    }
+
+    info!(
+        "Packed {} VAD segments into {} requests (target {:.1}s each)",
+        segments.len(),
+        packed.len(),
+        target_samples as f64 / 16000.0
+    );
+
+    packed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -232,5 +303,109 @@ mod tests {
 
         acquired_rx.await.unwrap();
         waiter.await.unwrap();
+    }
+
+    // ------------------------------------------------------------------
+    // pack_segments_to_target
+    // ------------------------------------------------------------------
+
+    const SR: usize = 16000;
+    const TARGET: usize = 25 * SR;
+
+    /// A segment of `seconds` duration whose timestamps start at `start_s`.
+    /// Timestamps intentionally leave a 1s gap when segments are laid out
+    /// end-to-end by the callers below, mirroring real VAD output.
+    fn segment(start_s: f64, seconds: f64) -> crate::audio::vad::SpeechSegment {
+        crate::audio::vad::SpeechSegment {
+            samples: vec![0.1; (seconds * SR as f64) as usize],
+            start_timestamp_ms: start_s * 1000.0,
+            end_timestamp_ms: (start_s + seconds) * 1000.0,
+            confidence: 0.9,
+        }
+    }
+
+    #[test]
+    fn packing_merges_short_segments_up_to_target() {
+        // Ten 3.5s segments -- the measured median of the broken live path.
+        let segments: Vec<_> = (0..10).map(|i| segment(i as f64 * 4.5, 3.5)).collect();
+
+        let packed = pack_segments_to_target(&segments, TARGET);
+
+        // 3.5s * 7 = 24.5s fits; an eighth would reach 28s and must not.
+        assert_eq!(packed.len(), 2);
+        assert_eq!(packed[0].samples.len(), (3.5 * 7.0 * SR as f64) as usize);
+        assert_eq!(packed[1].samples.len(), (3.5 * 3.0 * SR as f64) as usize);
+    }
+
+    #[test]
+    fn packing_never_exceeds_target() {
+        let segments: Vec<_> = (0..50).map(|i| segment(i as f64 * 2.0, 1.7)).collect();
+
+        for group in pack_segments_to_target(&segments, TARGET) {
+            assert!(
+                group.samples.len() <= TARGET,
+                "packed group of {} samples exceeds target {}",
+                group.samples.len(),
+                TARGET
+            );
+        }
+    }
+
+    #[test]
+    fn packing_spans_first_start_to_last_end() {
+        let segments = vec![segment(0.0, 3.0), segment(5.0, 3.0), segment(10.0, 3.0)];
+
+        let packed = pack_segments_to_target(&segments, TARGET);
+
+        assert_eq!(packed.len(), 1);
+        assert_eq!(packed[0].start_timestamp_ms, 0.0);
+        assert_eq!(packed[0].end_timestamp_ms, 13_000.0);
+        // Inter-segment silence is dropped, so the audio is shorter than the span.
+        assert_eq!(packed[0].samples.len(), (9.0 * SR as f64) as usize);
+    }
+
+    #[test]
+    fn packing_preserves_total_audio_and_order() {
+        let segments: Vec<_> = (0..13).map(|i| segment(i as f64 * 6.0, 5.0)).collect();
+        let total: usize = segments.iter().map(|s| s.samples.len()).sum();
+
+        let packed = pack_segments_to_target(&segments, TARGET);
+
+        assert_eq!(packed.iter().map(|s| s.samples.len()).sum::<usize>(), total);
+        assert!(
+            packed
+                .windows(2)
+                .all(|w| w[0].end_timestamp_ms <= w[1].start_timestamp_ms),
+            "packed groups must stay in chronological order"
+        );
+    }
+
+    #[test]
+    fn packing_passes_through_oversized_segment_untouched() {
+        // Splitting runs first, so this should not occur -- but if it does, the
+        // segment must survive rather than be silently cut.
+        let long = segment(0.0, 40.0);
+
+        let packed = pack_segments_to_target(&[long.clone()], TARGET);
+
+        assert_eq!(packed.len(), 1);
+        assert_eq!(packed[0].samples.len(), long.samples.len());
+    }
+
+    #[test]
+    fn packing_handles_empty_input() {
+        assert!(pack_segments_to_target(&[], TARGET).is_empty());
+    }
+
+    #[test]
+    fn packing_takes_weakest_confidence_in_group() {
+        let mut low = segment(5.0, 3.0);
+        low.confidence = 0.42;
+        let segments = vec![segment(0.0, 3.0), low];
+
+        let packed = pack_segments_to_target(&segments, TARGET);
+
+        assert_eq!(packed.len(), 1);
+        assert!((packed[0].confidence - 0.42).abs() < f32::EPSILON);
     }
 }
