@@ -88,7 +88,7 @@
             "app",
             "dmg"
         ],
-        "createUpdaterArtifacts": true,
+        "createUpdaterArtifacts": false,
         "icon": [
             "icons/icon.png",
             "icons/app_icon.icns",
@@ -112,9 +112,9 @@
     },
     "plugins": {
         "updater": {
-            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVDQTYzMUQ3ODc5N0M4MkEKUldRcXlKZUgxekdtN09DRkVWSHNpZlJseEVOUmpNd1dDSTNaLzZ3MXJGTnY3WW1pdnlOYjBpbkIK",
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDEzODU0OEQzNTlDOEQxNUMKUldSYzBjaFowMGlGRTdOb2lrNHFKZ2JIYzIxTks0RXJFY3daVDl1UDNNSmh3WjE0SC9HNnptUkIK",
             "endpoints": [
-                "https://github.com/Zackriya-Solutions/meeting-minutes/releases/latest/download/latest.json"
+                "https://github.com/Hus-Mek/meetily/releases/latest/download/latest.json"
             ]
         }
     }
